@@ -1,12 +1,11 @@
 services:
-
-# Creates a new service called db with Postgres database
+  # PostgreSQL Database
   db:
-    image: postgres:13
-    container_name: postgres
-    restart: always
+    image: postgres:15-alpine
+    container_name: booth_postgres
+    restart: unless-stopped
     volumes:
-      - booth_base:/var/lib/postgresql/data
+      - booth_db_data:/var/lib/postgresql/data
     env_file:
       - .env
     environment:
@@ -19,85 +18,57 @@ services:
           "CMD-SHELL", 
           "pg_isready -U ${DB_USER} -d ${DB_NAME}"
         ]
-      interval: 4s
-      timeout: 7s
-      retries: 40
-    
-  # migrate:
-  #   container_name: migrate
-  #   command: python manage.py migrate --noinput
-  #   build: .
-  #   env_file:
-  #     - .env
-  #   healthcheck:
-  #     test: 
-  #       [
-  #         "CMD-SHELL",  
-  #         "python manage.py migrate --check --dry-run"
-  #       ]
-  #     interval: 4s
-  #     timeout: 7s
-  #     retries: 40
-  #   depends_on:
-  #     db:
-  #       condition: service_healthy
-  
-# Creates a new service called redis with Redis cache
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - booth_network
+
+  # Redis Cache
   redis:
-    image: redis:latest
-    container_name: redis
-    restart: always
-
-#Creates a new service called celery with Celery worker
-  celery:
-    container_name: celery
-    restart: always
-    build: .
-    command: sh -c "celery -A app worker -l info"
-    env_file:
-      - .env
-    environment:
-      DB_HOST: ${DB_HOST}
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASS: ${DB_PASSWORD}
-    volumes:
-      - ./src:/app
-    depends_on:
-      - redis
-      - backend
-      - db
-
-# Creates a new service called booth with Django application
-  backend:
-    image: backend
-    container_name: booth
+    image: redis:7-alpine
+    container_name: booth_redis
     restart: unless-stopped
-    env_file:
-      - .env
+    command: redis-server --appendonly yes
+    volumes:
+      - booth_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - booth_network
+
+  # Node.js API Application
+  api:
     build:
       context: .
       dockerfile: ./Dockerfile
-    volumes:
-      - ./src:/app
-    expose:
-      - 5656
-    depends_on:
-      - db
-
-# Creates a new service called nginx with Nginx web server 
-  nginx:
-    image: nginx:latest
-    container_name: nginx
+    image: booth-api:latest
+    container_name: booth_api
     restart: unless-stopped
-    ports:
-      - 5656:5656
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: db
+      REDIS_HOST: redis
     volumes:
-      - ./src:/app
-      - ./nginx:/etc/nginx/conf.d
+      - ./app:/app
+      - /app/node_modules
+    ports:
+      - "${PORT:-3000}:3000"
     depends_on:
-      - backend
-
-volumes:
-  booth_base:
-    external: true
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "healthcheck.js"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - booth_network

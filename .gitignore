@@ -1,3 +1,6 @@
-src/app/__pycache__
-src/user/__pycache__
-src/booth/__pycache__/
+node_modules/
+.env
+*.log
+.DS_Store
+dist/
+build/
