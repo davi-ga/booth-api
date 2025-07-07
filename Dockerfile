@@ -3,14 +3,15 @@ FROM node:20-alpine
 # Set working directory
 WORKDIR /app
 
-# Copy package files
-COPY ./app/package.json ./app/package-lock.json* ./
+# Copy package files first (this helps with Docker layer caching)
+COPY package*.json ./
+
 
 # Install dependencies
-RUN npm ci --only=production
+RUN npm install --only=production
 
 # Copy application code
-COPY ./app .
+COPY . .
 
 # Create a non-root user
 RUN addgroup -g 1001 -S nodejs
